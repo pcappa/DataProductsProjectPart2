@@ -1,0 +1,273 @@
+========================================================
+# Engine Analysis App
+<hr>
+## <small>A Simple Engine Parameter Analysis Tool</small>
+<br>
+<br>
+## **Paul Cappa**
+### **<small>16 December 2015</small>**
+
+========================================================
+# **Introduction**
+<hr>
+This tool is designed to:
+
+- Perform exploratory data analysis on engine sensor data.
+- Compare behavior of two sensors.
+- Review up to two sensors over time.
+- Observe sensor behavior in one minute time slices.
+
+========================================================
+# **The Dataset**
+<hr>
+### Source
+The 7 minutes of data, within the dataset, was captured from a 2005 Honda Civic Hybrid using a simple OBDII data logger.
+### Available Engine Parameters
+```{r}
+source("global.R")
+levels(df$PID.Txt)
+```
+**"Time"** can also be used on the X Axis.
+
+========================================================
+# **Sample Analysis**
+<hr>
+### Comparing Two Engine Parameters
+```{r, echo=FALSE}
+
+plotEngineData <- function(inp) {
+	
+    ###########################################################################
+    #
+    # Read the inputs from the UI.
+    #
+    ###########################################################################
+
+    xs <- inp$xSensor                     # The X Axis Sensor
+    ys <- inp$ySensor                     # The Y Axis Sensor
+    ys2 <- inp$ySensor2                   # If enabled, the 2nd Y Axis Sensor.
+    multiPlot <- inp$ySecondSensor        # Indicates two sensors.
+    
+    snapshot <- inp$snapshot              # Display time slices.
+    ts <- inp$TimeSlice                   # The times slice to display.
+    colorPalette <- inp$colorPalette      # Color palalette to plot with.
+
+    
+    ###########################################################################
+    #
+    # Reactive function to figure out the plot type (Points, Lines, Both)
+    #
+    ###########################################################################
+
+    ptype <- function() {
+        if (inp$xSensor != TimeOption) {
+            "p" 
+        } else { 
+            if (inp$plotType == "Lines") { 
+                "l" 
+            } else if (inp$plotType == "Points & Lines") { 
+                "o" 
+            } else { 
+                "p" 
+            }
+        }
+    }
+
+    
+    ###########################################################################
+    #
+    # If "Time" is on the X Axis, we have to do some different manipulations.
+    # Also, we have the potential for displaying more than one sensor.
+    #
+    ###########################################################################
+
+    if (xs == TimeOption) {
+        if (multiPlot) {        
+            d <- subset(df, (df$PID.Txt == ys) | (df$PID.Txt == ys2)) 
+        } else {
+            d <- subset(df, (df$PID.Txt == ys))
+        }
+    } else {
+        d <- subset(df, (df$PID.Txt == xs) | (df$PID.Txt == ys))
+    }
+
+       
+    ###########################################################################
+    #
+    # Remove any factors that are not in the dataset.
+    #
+    ###########################################################################
+
+    d$PID <- factor(d$PID)
+    d$PID.Txt <- factor(d$PID.Txt)
+    
+
+    ###########################################################################
+    #
+    # If we are using time on the X Axis, then plug in the Y. Otherwise, we 
+    # have to go through and generate it.
+    #
+    ###########################################################################
+
+    if (xs == TimeOption) {                     # Time is on the X axis.
+        d$Y <- d$Value
+        d$Value <- d$Secs
+        
+    	# if it's a multi-plot, the we have to use unity for the Y axis.
+    
+        if (multiPlot) {
+            for (PID in levels(d$PID.Txt)) {
+    
+                miny <- min(d$Y[d$PID.Txt == PID])
+                maxy <- max(d$Y[d$PID.Txt == PID])
+                scaley <- maxy - miny
+            
+                x <- which(d$PID.Txt == PID)
+
+                if (scaley != 0) {
+                    d$Y[x] <- (d$Y[x] - miny) / scaley
+                } else {
+                    d$Y[x] <- 0.5
+                }
+            
+            }
+            miny <- 0
+            maxy <- 1
+        } else {
+            miny <- min(d$Y)
+            maxy <- max(d$Y) 
+        }
+
+    } else {                                    # A sensor is on the X axis.
+
+        # Find the first occurance of the Y Factor and start from there.
+    
+        j <- which(d$PID.Txt == ys)[1]
+        curry <- d$Value[j]
+        
+        # Back fill the value (we are assuming it is the same value up to that point
+        
+        for (i in 1:j) {
+            d$Y[i] <- curry
+        }
+        
+        # Fill in the rest of the values.
+        
+        for (i in j:nrow(d)) {
+            if (d$PID.Txt[i] == ys) { 
+                curry <- d$Value[i]
+            }
+            d$Y[i] <- curry
+        }
+        
+        # Keep only what we are going to use.
+        
+        d <- subset(d, d$PID.Txt == xs)
+        miny <- min(d$Y)
+        maxy <- max(d$Y)
+   	}
+
+    
+    ###########################################################################
+    #
+    # This is a bit of a brute force method to find the end points for the X
+    # scale.  If we are in snapshot mode then it behaves differently than
+    # in normal mode.  Then within snapshot mode, we have to know if time is
+    # displayed on the X axis.  If we are displaying time, we want to scale
+    # the axis based on what we are displaying.
+    #
+    ###########################################################################
+
+    if (snapshot) {
+        if (xs == TimeOption) {
+            d <- subset(d, d$Minute == ts)
+            minx <- min(d$Value)
+            maxx <- max(d$Value)
+        } else {
+            minx <- min(d$Value)
+            maxx <- max(d$Value)
+            d <- subset(d, d$Minute == ts)
+        }
+    } else {
+        minx <- min(d$Value)
+        maxx <- max(d$Value)
+    }
+
+    
+    ###########################################################################
+    #
+    #  Time to plot the data.
+    #
+    ###########################################################################
+
+    # One last time, remove any factors that are not in the dataset.
+
+    d$PID <- factor(d$PID)
+    d$PID.Txt <- factor(d$PID.Txt)
+    
+    
+    # Set the title of the plot.
+    
+    ylab <- ys
+    t <- paste0("XY Plot of ",xs, " v. ", ylab)
+    
+    if (multiPlot) { 
+        t <- paste0(t, " & ", ys2)
+        ylab <- paste0(ylab, " & ", ys2)
+    }
+    
+
+    # Put together the plot window.
+    
+    par(mfrow=c(1,1))
+    
+    plot(c(minx, maxx), c(miny,maxy), xlab=xs, ylab=ylab, type="n")
+    title(t)
+    rect(par("usr")[1], par("usr")[3], par("usr")[2], par("usr")[4], col = "gray98")
+    axis(1, tck=1, lty=3, col="gray50", labels=FALSE)
+    axis(2, tck=1, lty=3, col="gray50", labels=FALSE)
+
+    
+    # Based on the user's palette preferences, pick a real color.
+    
+    maxColors <- 2
+    
+    if (colorPalette == "Red") {
+        plotColors <- c("orangered", "gray70")
+    } else if (colorPalette == "Blue") {
+        plotColors <- c("blue", "gray70")
+    } else {
+        plotColors <- c("green4", "gray70")
+    }
+    
+    
+    # Place the data on the plot.
+
+    i <- 1    
+    for (PID in levels(d$PID.Txt)) {
+        x <- which(d$PID.Txt == PID)
+        lines(d$Value[x], d$Y[x], col=plotColors[i], pch=20, type=ptype())
+        i <- i + 1
+        if (i > maxColors) { i <- 1 }
+    }
+}
+    
+i<-list(xSensor="Speed", ySensor="RPM", ySecondSensor=FALSE,
+ySensor2="ThrottlePosition", snapshot=FALSE, TimeSlice=1, 
+colorPalette="Green", plotType="Points")
+
+plotEngineData(i)
+```
+
+========================================================
+# **Sample Analysis**
+<hr>
+### Comparing Two Engine Parameters over Time
+```{r, echo=FALSE}
+
+i<-list(xSensor="Time (Seconds)", ySensor="RPM", ySecondSensor=TRUE,
+ySensor2="ThrottlePosition", snapshot=TRUE, TimeSlice=1, 
+colorPalette="Green", plotType="Points & Lines")
+
+plotEngineData(i)
+```
